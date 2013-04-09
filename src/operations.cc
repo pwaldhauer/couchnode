@@ -687,7 +687,7 @@ void ViewOperation::parse(const v8::Arguments &arguments)
         throw ss.str();
     }
 
-    path << "/_view/";
+    path << "/_spatial/";
     try {
         getString(arguments[idxReq], path);
     } catch (std::string &ex) {
