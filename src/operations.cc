@@ -686,16 +686,30 @@ void ViewOperation::parse(const v8::Arguments &arguments)
            << ex;
         throw ss.str();
     }
+ 
+    std::stringstream viewnamestream;
+    getString(arguments[idxReq], viewnamestream);
 
-    path << "/_spatial/";
-    try {
+    std::string spatial_needle ("_spatial/");
+    std::string viewname = viewnamestream.str();
+
+    unsigned found = viewname.find(spatial_needle);
+    if (found == 0) {
+        path << "/";
+        path << viewname;
+    } else {
+        path << "/_view/";
+        path << viewname;
+    }
+
+ /*   try {
         getString(arguments[idxReq], path);
     } catch (std::string &ex) {
         std::stringstream ss;
         ss << "Failed to parse name argument (#" << idxReq << "): "
            << ex;
         throw ss.str();
-    }
+    }*/
 
     // callback function to follow
     if (!arguments[idxCallback]->IsFunction()) {
