@@ -19,13 +19,12 @@
 #include <sstream>
 
 #include "couchbase_impl.h"
-#include "io/libcouchbase-libuv.h"
+#include "ioplugin.h"
 #include "cas.h"
+#include "logger.h"
 
 using namespace std;
 using namespace Couchnode;
-
-typedef lcb_io_opt_st *(*loop_factory_fn)(uv_loop_t *, uint16_t);
 
 // libcouchbase handlers keep a C linkage...
 extern "C" {
@@ -72,8 +71,9 @@ CouchbaseImpl::~CouchbaseImpl()
     cerr << "Destroying handle.." << endl
          << "Still have " << objectCount << " handles remaining" << endl;
 #endif
-
-    lcb_destroy(instance);
+    if (instance) {
+        lcb_destroy(instance);
+    }
 
     EventMap::iterator iter = events.begin();
     while (iter != events.end()) {
@@ -105,6 +105,8 @@ void CouchbaseImpl::Init(v8::Handle<v8::Object> target)
     NODE_SET_PROTOTYPE_METHOD(s_ct, "isSynchronous", IsSynchronous);
     NODE_SET_PROTOTYPE_METHOD(s_ct, "getLastError", GetLastError);
     NODE_SET_PROTOTYPE_METHOD(s_ct, "get", Get);
+    NODE_SET_PROTOTYPE_METHOD(s_ct, "getAndLock", GetAndLock);
+    NODE_SET_PROTOTYPE_METHOD(s_ct, "unlock", Unlock);
     NODE_SET_PROTOTYPE_METHOD(s_ct, "store", Store);
     NODE_SET_PROTOTYPE_METHOD(s_ct, "on", On);
     NODE_SET_PROTOTYPE_METHOD(s_ct, "arithmetic", Arithmetic);
@@ -112,6 +114,7 @@ void CouchbaseImpl::Init(v8::Handle<v8::Object> target)
     NODE_SET_PROTOTYPE_METHOD(s_ct, "touch", Touch);
     NODE_SET_PROTOTYPE_METHOD(s_ct, "observe", Observe);
     NODE_SET_PROTOTYPE_METHOD(s_ct, "view", View);
+    NODE_SET_PROTOTYPE_METHOD(s_ct, "shutdown", Shutdown);
 
     NODE_SET_PROTOTYPE_METHOD(s_ct, "getDesignDoc", GetDesignDoc);
     NODE_SET_PROTOTYPE_METHOD(s_ct, "setDesignDoc", SetDesignDoc);
@@ -188,8 +191,7 @@ v8::Handle<v8::Value> CouchbaseImpl::New(const v8::Arguments &args)
         }
     }
 
-    lcb_io_opt_st *iops = lcb_luv_create_io_opts(uv_default_loop(),
-                                                 1024);
+    lcb_io_opt_st *iops = Couchnode::createIoOps(uv_default_loop());
     if (iops == NULL) {
         return ThrowException("Failed to create a new IO ops structure");
     }
@@ -442,6 +444,22 @@ v8::Handle<v8::Value> CouchbaseImpl::Get(const v8::Arguments &args)
     return makeOperation(me, args, op);
 }
 
+v8::Handle<v8::Value> CouchbaseImpl::GetAndLock(const v8::Arguments &args)
+{
+    v8::HandleScope scope;
+    CouchbaseImpl *me = ObjectWrap::Unwrap<CouchbaseImpl>(args.This());
+    GetAndLockOperation *op = new GetAndLockOperation;
+    return makeOperation(me, args, op);
+}
+
+v8::Handle<v8::Value> CouchbaseImpl::Unlock(const v8::Arguments &args)
+{
+    v8::HandleScope scope;
+    CouchbaseImpl *me = ObjectWrap::Unwrap<CouchbaseImpl>(args.This());
+    UnlockOperation *op = new UnlockOperation;
+    return makeOperation(me, args, op);
+}
+
 v8::Handle<v8::Value> CouchbaseImpl::Touch(const v8::Arguments &args)
 {
     v8::HandleScope scope;
@@ -482,6 +500,14 @@ v8::Handle<v8::Value> CouchbaseImpl::View(const v8::Arguments &args)
     return makeOperation(me, args, op);
 }
 
+v8::Handle<v8::Value> CouchbaseImpl::Shutdown(const v8::Arguments &args)
+{
+    v8::HandleScope scope;
+    CouchbaseImpl *me = ObjectWrap::Unwrap<CouchbaseImpl>(args.This());
+    me->shutdown();
+    return scope.Close(v8::True());
+}
+
 v8::Handle<v8::Value> CouchbaseImpl::GetDesignDoc(const v8::Arguments &args)
 {
     v8::HandleScope scope;
@@ -504,4 +530,22 @@ v8::Handle<v8::Value> CouchbaseImpl::DeleteDesignDoc(const v8::Arguments &args)
     CouchbaseImpl *me = ObjectWrap::Unwrap<CouchbaseImpl>(args.This());
     DeleteDesignDocOperation *op = new DeleteDesignDocOperation;
     return makeOperation(me, args, op);
+}
+
+extern "C" {
+    static void libuv_shutdown_cb(uv_timer_t* t, int) {
+        ScopeLogger sl("libuv_shutdown_cb");
+        lcb_t instance = (lcb_t)t->data;
+        lcb_destroy(instance);
+        delete t;
+    }
+}
+
+void CouchbaseImpl::shutdown(void)
+{
+    uv_timer_t *timer = new uv_timer_t;
+    uv_timer_init(uv_default_loop(), timer);
+    timer->data = instance;
+    instance = NULL;
+    uv_timer_start(timer, libuv_shutdown_cb, 10, 0);
 }
