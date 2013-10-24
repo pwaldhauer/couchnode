@@ -1,6 +1,7 @@
 {
   'targets': [{
     'target_name': 'couchbase_impl',
+    'defines': ['LCBUV_EMBEDDED_SOURCE'],
     'conditions': [
       [ 'OS=="win"', {
         'variables': {
@@ -15,8 +16,11 @@
           ],
         },
         'copies': [{
-          'files': [ '<(couchbase_root)/lib/libcouchbase.dll' ],
+          'files': [ '<(couchbase_root)/bin/libcouchbase.dll' ],
           'destination': '<(module_root_dir)/build/Release/',
+        },{
+          'files': [ '<(couchbase_root)/bin/libcouchbase.dll' ],
+          'destination': '<(module_root_dir)/build/Debug/',
         },],
         'configurations': {
           'Release': {
@@ -35,6 +39,10 @@
         },
       }],
       ['OS!="win"', {
+        'variables' : {
+            'couchbase_root%' : '""'
+        },
+
         'link_settings': {
           'libraries': [
             '$(EXTRA_LDFLAGS)',
@@ -56,24 +64,32 @@
           '-pedantic',
           '-std=gnu99',
         ],
-        'cflags!': [
-          '-fno-exceptions',
+        'conditions': [
+            [ 'couchbase_root!=""', {
+                'include_dirs': [ '<(couchbase_root)/include' ],
+                'libraries+': [ '-L<(couchbase_root)/lib' ],
+                'conditions': [ [ 'OS!="mac"', {'libraries+':['-Wl,-rpath=<(couchbase_root)/lib']} ] ]
+            }]
         ],
-        'cflags_cc!': [
-          '-fno-exceptions',
-        ],
-      }],
+      }]
     ],
     'sources': [
       'src/couchbase_impl.cc',
+      'src/control.cc',
+      'src/constants.cc',
       'src/namemap.cc',
-      'src/notify.cc',
-      'src/operations.cc',
+      'src/cookie.cc',
+      'src/commandbase.cc',
+      'src/commands.cc',
+      'src/exception.cc',
+      'src/options.cc',
       'src/cas.cc',
-      'src/ioplugin.cc'
+      'src/uv-plugin-all.c',
+      'src/valueformat.cc'
     ],
     'include_dirs': [
       './',
+      './src/io'
     ],
   }]
 }
